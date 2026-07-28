@@ -1,0 +1,12 @@
+# LOCAL dev + CI only (for unit-testing the pure functions in src/).
+#
+# IMPORTANT: install these in a Python 3.11 venv.
+#   PySpark does NOT support your machine's Python 3.14 yet — a plain
+#   `pip install pyspark` on 3.14 will fail. Day 1 needs nothing local;
+#   you only need this when we reach the tests (Phase D).
+#
+# Delta Lake, MERGE, OPTIMIZE, Z-ORDER, Workflows all run on Databricks — not here.
+pyspark==3.5.1
+pytest==8.2.0
+black==24.4.2
+flake8==7.0.0

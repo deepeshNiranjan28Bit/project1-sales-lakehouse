@@ -1,0 +1,21 @@
+# data files — keep the folders, ignore the big files
+data/**/*.parquet
+data/**/*.csv
+data/**/*.json
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# secrets — NEVER commit credentials
+.env
+*.env
+secrets.*
+
+# os / editor
+.DS_Store
+.vscode/
