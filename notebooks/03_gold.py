@@ -13,10 +13,14 @@ silver.count()
 
 # COMMAND ----------
 
+# Just checking
+%sql
+Select distinct payment_type
+from workspace.taxi.silver_yellow_trips
+limit 10
 
-# TODO 2 — Build fact_trips. Grain = ONE ROW PER TRIP. Measures: fare, tip, distance, total.
-#   Fact holds the surrogate FKs (zone_sk, date_sk), not the natural keys.
-#   Write the heavier aggregations in Spark SQL: spark.sql("SELECT ... FROM ...").
+# COMMAND ----------
+
 from pyspark.sql.functions import col, year, month, dayofweek, to_date
 
 silver = spark.table("workspace.taxi.silver_yellow_trips")
@@ -28,7 +32,7 @@ fact_trips = silver.select(
     "VendorID",
     "fare_amount","trip_distance","total_amount","passenger_count",
     "tpep_pickup_datetime","tpep_dropoff_datetime",
-    "PULocationID","DOLocationID","payment_type","pickup_date"
+    "PULocationID","DOLocationID","payment_type","pickup_date","tip_amount"
 )
 
 # --- DIM DATE ---
@@ -40,11 +44,6 @@ dim_date = (silver.select("pickup_date").distinct()
 
 # COMMAND ----------
 
-# TODO 3 — INCREMENTAL UPSERT with Delta MERGE (the standout skill). Simulate "a new day":
-#   MERGE INTO gold_fact_trips t USING updates s ON t.trip_key = s.trip_key
-#   WHEN MATCHED THEN UPDATE SET *
-#   WHEN NOT MATCHED THEN INSERT *
-#   Be ready to explain matched / not-matched clauses and why this is idempotent.
 from delta.tables import DeltaTable
 
 # --- 1. Initial write of fact table (first run only) ---
@@ -83,8 +82,6 @@ spark.sql("OPTIMIZE workspace.taxi.fact_trips ZORDER BY (PULocationID)")
 
 # COMMAND ----------
 
-# TODO 4 — Performance: OPTIMIZE gold_fact_trips; then ZORDER BY (zone_id, pickup_date).
-#   Note the file count / data-skipping benefit before vs after.
 print("after first gold run:", spark.table("workspace.taxi.fact_trips").count())
 # re-run block 2 (the MERGE) alone, then:
 print("after second merge:", spark.table("workspace.taxi.fact_trips").count())
@@ -92,4 +89,46 @@ print("after second merge:", spark.table("workspace.taxi.fact_trips").count())
 # COMMAND ----------
 
 # TODO 5 — A couple of gold marts: daily revenue by zone, trips by hour, avg tip % by payment type.
-#!!!!!!!!!!!!!!!Pending
+#Pending Pending
+from pyspark.sql.functions import col, sum, count, avg, hour, when
+
+fact = spark.table("workspace.taxi.fact_trips")
+
+# --- MART 1: daily revenue by zone ---
+# Group by pickup_date + PULocationID, sum the revenue.
+mart_daily_revenue = (fact
+    .groupBy("pickup_date", "PULocationID")
+    .agg(
+        # TODO: sum of total_amount as "revenue", count of trips as "trip_count"
+        (sum(col("total_amount")).alias("revenue")),
+        (count(col("VendorID")).alias("trip_count" ))
+    ))
+
+# --- MART 2: trips by hour of day ---
+# Extract the hour from pickup time, count trips per hour.
+mart_trips_by_hour = (fact
+    .withColumn("pickup_hour", hour(col("tpep_pickup_datetime")))
+    .groupBy("pickup_hour")
+    .agg(
+        # TODO: count of trips as "trip_count"
+        (count(col("VendorId")).alias("trip_count"))
+    ))
+
+# --- MART 3: avg tip % by payment type ---
+# This one needs a derived column first: tip as a % of fare.
+# TODO: add "tip_pct" = tip_amount / fare_amount (guard against divide-by-zero),
+#       then groupBy payment_type and avg it.
+
+
+mart_tip_by_payment = (fact
+    .withColumn("tip_pct",
+        when(col("fare_amount") > 0, col("tip_amount") / col("fare_amount"))
+        .otherwise(None))
+    .groupBy("payment_type")
+    .agg(avg("tip_pct").alias("avg_tip_pct")))
+
+# COMMAND ----------
+
+display(mart_tip_by_payment.show(5))
+display(mart_trips_by_hour.show(5))
+display(mart_daily_revenue.show(5))
